@@ -1,0 +1,78 @@
+# ──────────────────────────────────────────────────────────────
+# RAGNA — Docker Compose Orchestration
+# 4 services: Database, Adminer, Backend API, Frontend UI
+# ──────────────────────────────────────────────────────────────
+
+services:
+  # ── PostgreSQL Database ───────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: ragna_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ragna_admin
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ragna_secret_2026}
+      POSTGRES_DB: ragna_core
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ragna_admin -d ragna_core"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Adminer — Database GUI ────────────────────────────────
+  adminer:
+    image: adminer
+    container_name: ragna_admin
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+
+  # ── Backend API (Express + Prisma) ────────────────────────
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: ragna_core
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - ./server/.env
+    environment:
+      # Override DATABASE_URL to use Docker network hostname
+      DATABASE_URL: "postgresql://ragna_admin:${DB_PASSWORD:-ragna_secret_2026}@db:5432/ragna_core?schema=public"
+      PORT: "4000"
+      NODE_ENV: "development"
+      CORS_ORIGIN: "http://localhost:3000"
+    volumes:
+      - ./server/uploads:/app/uploads
+
+  # ── Frontend UI (Vite React) ──────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ragna_ui
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      VITE_API_URL: "http://localhost:4000/api"
+
+volumes:
+  pgdata:
+    driver: local

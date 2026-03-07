@@ -1,0 +1,106 @@
+// Prisma Schema for RAGNA — Manga Forge
+// PostgreSQL with strict relational hierarchy: User -> Project -> Page -> Panel
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ──────────────────────────────────────────
+// USERS
+// ──────────────────────────────────────────
+model User {
+  id        String   @id @default(uuid()) @db.Uuid
+  username  String   @unique @db.VarChar(64)
+  email     String   @unique @db.VarChar(255)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  projects MangaProject[]
+
+  @@map("users")
+}
+
+// ──────────────────────────────────────────
+// MANGA PROJECTS — populates the "ARCHIVES" page
+// ──────────────────────────────────────────
+enum Genre {
+  SHONEN
+  SEINEN
+  MECHA
+  SHOJO
+}
+
+enum AiModel {
+  GEMINI_2_FLASH
+  GEMINI_1_5_PRO
+  CLAUDE_3_5_SONNET
+  CLAUDE_3_OPUS
+  LLAMA_3
+  MIDJOURNEY
+  IMAGEN_3
+  COMET
+}
+
+model MangaProject {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  title          String   @db.VarChar(256)
+  genre          Genre
+  originalPrompt String   @map("original_prompt") @db.Text
+  aiModelUsed    AiModel  @map("ai_model_used")
+  coverImageUrl  String?  @map("cover_image_url") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pages MangaPage[]
+
+  @@index([userId])
+  @@map("manga_projects")
+}
+
+// ──────────────────────────────────────────
+// MANGA PAGES — logical grouping for infinite scroll chunks
+// ──────────────────────────────────────────
+model MangaPage {
+  id         String   @id @default(uuid()) @db.Uuid
+  projectId  String   @map("project_id") @db.Uuid
+  pageNumber Int      @map("page_number")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  project MangaProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  panels  Panel[]
+
+  @@unique([projectId, pageNumber])
+  @@index([projectId])
+  @@map("manga_pages")
+}
+
+// ──────────────────────────────────────────
+// PANELS — the actual interleaved content
+// ──────────────────────────────────────────
+enum PanelType {
+  NARRATION
+  DIALOGUE
+  IMAGE_PANEL
+  SFX
+}
+
+model Panel {
+  id         String    @id @default(uuid()) @db.Uuid
+  pageId     String    @map("page_id") @db.Uuid
+  orderIndex Int       @map("order_index")
+  type       PanelType
+  content    String    @db.Text // text content OR image URL
+  metadata   Json?     @db.JsonB // e.g. {"character_focus":"hero","camera_angle":"close-up"}
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  page MangaPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@unique([pageId, orderIndex])
+  @@index([pageId])
+  @@map("panels")
+}

@@ -1,0 +1,258 @@
+/* ══════════════════════════════════════════════════════════════
+   MANIFESTO PAGE — Ideological Statement
+   Single-column, text-focused brutalist typography
+   No images. Just raw ideology.
+   ══════════════════════════════════════════════════════════════ */
+
+.manifesto-main {
+    position: relative;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    padding: 0 4rem;
+    background: var(--color-bg-dark);
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+.manifesto-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2rem 0;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.manifesto-header .logo {
+    cursor: pointer;
+}
+
+/* ── Intro Block ────────────────────────────────────────────── */
+.manifesto-intro {
+    padding: 6rem 0 3rem;
+    max-width: 900px;
+}
+
+.manifesto-super-title {
+    font-size: 10rem;
+    line-height: 0.85;
+    color: var(--color-paper);
+    letter-spacing: -0.02em;
+    margin-bottom: 1.5rem;
+}
+
+.red-dot {
+    color: var(--color-accent-red);
+}
+
+.manifesto-subtitle {
+    font-size: 0.95rem;
+    color: rgba(255, 255, 255, 0.4);
+    letter-spacing: 0.15em;
+    margin-bottom: 2rem;
+}
+
+.divider-line {
+    width: 120px;
+    height: 4px;
+    background: var(--color-accent-red);
+    box-shadow: 0 0 12px rgba(230, 35, 20, 0.4);
+}
+
+/* ── Manifesto Sections ─────────────────────────────────────── */
+.manifesto-sections {
+    max-width: 900px;
+    padding: 2rem 0 6rem;
+}
+
+.manifesto-section {
+    padding: 5rem 0;
+    opacity: 0;
+    transform: translateY(60px);
+    transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.manifesto-section.revealed {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* Section number */
+.section-number {
+    font-size: 0.8rem;
+    color: var(--color-accent-red);
+    letter-spacing: 0.2em;
+    margin-bottom: 1rem;
+    opacity: 0.7;
+}
+
+/* Section title — massive screen-filling text */
+.section-title {
+    font-size: 6rem;
+    line-height: 0.9;
+    color: var(--color-paper);
+    margin-bottom: 2rem;
+    letter-spacing: -0.01em;
+}
+
+/* Highlighted keywords */
+.keyword {
+    color: var(--color-accent-red);
+    position: relative;
+    cursor: default;
+    transition: text-shadow 0.2s;
+}
+
+.keyword:hover {
+    text-shadow:
+        0 0 20px rgba(230, 35, 20, 0.6),
+        0 0 40px rgba(230, 35, 20, 0.3);
+}
+
+/* Typed text body */
+.manifesto-text {
+    font-size: 1.15rem;
+    line-height: 1.8;
+    color: rgba(255, 255, 255, 0.65);
+    max-width: 700px;
+    min-height: 3em;
+    border-left: 3px solid rgba(255, 255, 255, 0.1);
+    padding-left: 1.5rem;
+}
+
+/* Section divider */
+.section-divider {
+    margin-top: 4rem;
+    height: 1px;
+    background: linear-gradient(
+        to right,
+        var(--color-accent-red),
+        rgba(255, 255, 255, 0.1) 40%,
+        transparent
+    );
+}
+
+/* ── Final Section — CTA ────────────────────────────────────── */
+.final-section {
+    padding-bottom: 4rem;
+}
+
+.manifesto-cta {
+    margin-top: 3rem;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1.5rem;
+}
+
+.cta-btn {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    border: none;
+    padding: 18px 48px;
+    font-size: 2rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+    letter-spacing: 0.05em;
+}
+
+.cta-btn:hover {
+    background: var(--color-accent-red);
+    color: var(--color-paper);
+    transform: translateY(-4px);
+    box-shadow:
+        0 10px 30px rgba(230, 35, 20, 0.4),
+        0 0 60px rgba(230, 35, 20, 0.15);
+}
+
+.cta-btn:active {
+    transform: translateY(0);
+}
+
+.cta-status {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.4);
+    letter-spacing: 0.1em;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-accent-red);
+    box-shadow: 0 0 8px var(--color-accent-red);
+    animation: pulse-slow 2s ease-in-out infinite;
+}
+
+/* ── Footer ─────────────────────────────────────────────────── */
+.manifesto-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2rem 0;
+    border-top: 2px solid var(--color-ink);
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 0.85rem;
+    margin-top: auto;
+}
+
+.status-bars {
+    display: flex;
+    gap: 4px;
+}
+
+.bar {
+    width: 8px;
+    height: 16px;
+    background: transparent;
+    border: 1px solid var(--color-accent-red);
+}
+
+.bar.filled {
+    background: var(--color-accent-red);
+    box-shadow: 0 0 5px var(--color-accent-red);
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 1024px) {
+    .manifesto-super-title {
+        font-size: 6rem;
+    }
+
+    .section-title {
+        font-size: 4rem;
+    }
+}
+
+@media (max-width: 768px) {
+    .manifesto-main {
+        padding: 0 2rem;
+    }
+
+    .manifesto-super-title {
+        font-size: 4rem;
+    }
+
+    .section-title {
+        font-size: 3rem;
+    }
+
+    .manifesto-text {
+        font-size: 1rem;
+    }
+
+    .cta-btn {
+        font-size: 1.5rem;
+        padding: 14px 32px;
+    }
+
+    .manifesto-header {
+        flex-direction: column;
+        gap: 1rem;
+        align-items: flex-start;
+    }
+}
