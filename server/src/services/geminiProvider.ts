@@ -1,11 +1,11 @@
 // ──────────────────────────────────────────────────────────────
-// Gemini Text AI Provider (Google AI Studio)
+// Gemini Text AI Provider (Google GenAI SDK)
 // ──────────────────────────────────────────────────────────────
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import type { TextAIProvider, StoryBeat } from './types.js';
 import { robustJsonParse } from './jsonRepair.js';
 
-const MANGA_SYSTEM_PROMPT = `You are RAGNA, an expert manga storyboard AI. 
+const MANGA_SYSTEM_PROMPT = `You are RAGNA, an expert manga storyboard AI.
 You generate structured story beats for manga panels in strict JSON format.
 Every response MUST be a valid JSON array of beat objects.
 
@@ -26,40 +26,35 @@ Generate between 8-16 beats per request depending on prompt complexity.`;
 
 export class GeminiProvider implements TextAIProvider {
   readonly name = 'gemini';
-  private client: GoogleGenerativeAI | null = null;
+  private ai: GoogleGenAI | null = null;
 
   constructor() {
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
     if (apiKey) {
-      this.client = new GoogleGenerativeAI(apiKey);
+      this.ai = new GoogleGenAI({ apiKey });
     }
   }
 
+  private async callGeminiText(prompt: string): Promise<string> {
+    if (!this.ai) throw new Error('Gemini API key not configured');
+    const response = await this.ai.models.generateContent({
+      model: 'gemini-1.5-pro',
+      contents: prompt,
+    });
+    return response.text ?? '';
+  }
+
   async generateStoryBeats(prompt: string, genre: string, panelCount = 12): Promise<StoryBeat[]> {
-    if (!this.client) throw new Error('Gemini API key not configured');
+    const userPrompt = `${MANGA_SYSTEM_PROMPT}
 
-    const model = this.client.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
-    const userPrompt = `Genre: ${genre}
+---
+Genre: ${genre}
 Panel count target: ${panelCount}
 User prompt: "${prompt}"
 
 Generate a manga storyboard as a JSON array of story beats. Return ONLY the JSON array, no markdown fences.`;
 
-    const result = await model.generateContent({
-      contents: [
-        { role: 'user', parts: [{ text: MANGA_SYSTEM_PROMPT }] },
-        { role: 'model', parts: [{ text: 'Understood. I will generate strict JSON arrays of manga story beats.' }] },
-        { role: 'user', parts: [{ text: userPrompt }] },
-      ],
-      generationConfig: {
-        temperature: 0.9,
-        maxOutputTokens: 4096,
-        responseMimeType: 'application/json',
-      },
-    });
-
-    const text = result.response.text();
+    const text = await this.callGeminiText(userPrompt);
     const parsed = robustJsonParse<StoryBeat[]>(text);
     if (!Array.isArray(parsed) || parsed.length === 0) {
       throw new Error('Parsed result is not a valid beats array');

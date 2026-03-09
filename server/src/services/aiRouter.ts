@@ -210,12 +210,12 @@ export class AIRouter {
   }
 
   private mapProviderToModel(provider: string): 'GEMINI_2_FLASH' | 'GEMINI_1_5_PRO' | 'CLAUDE_3_5_SONNET' | 'CLAUDE_3_OPUS' | 'LLAMA_3' | 'MIDJOURNEY' | 'IMAGEN_3' | 'COMET' {
-    const map: Record<string, 'GEMINI_2_FLASH' | 'CLAUDE_3_5_SONNET' | 'LLAMA_3' | 'COMET'> = {
-      'gemini':      'GEMINI_2_FLASH',
+    const map: Record<string, 'GEMINI_1_5_PRO' | 'CLAUDE_3_5_SONNET' | 'LLAMA_3' | 'COMET'> = {
+      'gemini':      'GEMINI_1_5_PRO',
       'comet-text':  'COMET',
       'openrouter':  'LLAMA_3',
     };
-    return map[provider] || 'GEMINI_2_FLASH';
+    return map[provider] || 'GEMINI_1_5_PRO';
   }
 }
 
