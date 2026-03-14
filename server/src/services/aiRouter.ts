@@ -11,6 +11,7 @@ import { CometImageProvider } from './cometProvider.js';
 import { VertexImageProvider } from './vertexProvider.js';
 import { StorageService } from './storage.js';
 import { prisma } from '../prisma.js';
+import type { Prisma } from '@prisma/client';
 
 // ── Provider Registry ────────────────────────────────────────
 const TEXT_PROVIDERS: Record<string, () => TextAIProvider> = {
@@ -47,6 +48,10 @@ export class AIRouter {
 
     console.log(`[AI_ROUTER] Text pipeline: ${this.textProviders.map(p => p.name).join(' → ')}`);
     console.log(`[AI_ROUTER] Image pipeline: ${this.imageProviders.map(p => p.name).join(' → ')}`);
+  }
+
+  private serializeMetadata(metadata?: Record<string, unknown>): Prisma.InputJsonValue {
+    return JSON.parse(JSON.stringify(metadata || {})) as Prisma.InputJsonValue;
   }
 
   // ── Text Generation with Fallback ─────────────────────────
@@ -166,22 +171,22 @@ export class AIRouter {
       emittedBeatCount += 1;
 
       if (beat.type === 'panel_prompt') {
-        const beatMetadata = JSON.parse(JSON.stringify(beat.metadata || {})) as Record<string, unknown>;
+        const beatMetadata = this.serializeMetadata(beat.metadata);
         onPanel?.({
           type: 'panel_prompt',
           orderIndex: currentOrder,
           content: beat.content,
-          metadata: beatMetadata,
+          metadata: beatMetadata as Record<string, unknown>,
         });
 
         imageTasks.push((async () => {
           try {
             const { imageUrl, providerUsed } = await this.generateImage(beat.content, genre.toLowerCase());
             const imageMetadata = {
-              ...beatMetadata,
+              ...(beatMetadata as Record<string, unknown>),
               imagePrompt: beat.content,
               imageProvider: providerUsed,
-            };
+            } as Prisma.InputJsonValue;
 
             await prisma.panel.create({
               data: {
@@ -205,11 +210,17 @@ export class AIRouter {
               type: 'image',
               orderIndex: currentOrder,
               content: imageUrl,
-              metadata: imageMetadata,
+              metadata: imageMetadata as Record<string, unknown>,
             });
           } catch (err) {
             const message = err instanceof Error ? err.message : 'Image generation failed';
             console.error(`[PIPELINE] Image generation failed beat #${currentOrder}:`, err);
+
+            const failedImageMetadata = {
+              ...(beatMetadata as Record<string, unknown>),
+              imagePrompt: beat.content,
+              error: message,
+            } as Prisma.InputJsonValue;
 
             await prisma.panel.create({
               data: {
@@ -217,11 +228,7 @@ export class AIRouter {
                 orderIndex: currentOrder,
                 type: 'IMAGE_PANEL',
                 content: '[IMAGE_GENERATION_FAILED]',
-                metadata: {
-                  ...beatMetadata,
-                  imagePrompt: beat.content,
-                  error: message,
-                },
+                metadata: failedImageMetadata,
               },
             });
 
@@ -242,7 +249,7 @@ export class AIRouter {
       }
 
       const panelType = beat.type === 'dialogue' ? 'DIALOGUE' : beat.type === 'sfx' ? 'SFX' : 'NARRATION';
-      const beatMetadata = JSON.parse(JSON.stringify(beat.metadata || {})) as Record<string, unknown>;
+      const beatMetadata = this.serializeMetadata(beat.metadata);
 
       await prisma.panel.create({
         data: {
@@ -258,7 +265,7 @@ export class AIRouter {
         type: beat.type,
         orderIndex: currentOrder,
         content: beat.content,
-        metadata: beatMetadata,
+        metadata: beatMetadata as Record<string, unknown>,
       });
     };
 
