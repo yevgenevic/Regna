@@ -27,6 +27,8 @@ generateRoutes.post('/', async (req, res) => {
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
+    res.flushHeaders();
+    res.write(': stream-open\n\n');
 
     // Temporary user ID if not authenticated
     const userId = body.userId || '00000000-0000-0000-0000-000000000000';
@@ -48,6 +50,7 @@ generateRoutes.post('/', async (req, res) => {
       body.prompt,
       body.genre,
       userId,
+      body.panelCount,
       (panelEvent) => {
         res.write(`data: ${JSON.stringify(panelEvent)}\n\n`);
       },

@@ -12,12 +12,13 @@
     "prisma:studio": "prisma studio"
   },
   "dependencies": {
-    "@google/genai": "^1.0.0",
     "@google-cloud/storage": "^7.14.0",
+    "@google/genai": "^1.0.0",
     "@prisma/client": "^6.3.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "google-auth-library": "^10.6.1",
     "helmet": "^8.0.0",
     "uuid": "^11.0.5",
     "zod": "^3.24.2"

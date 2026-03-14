@@ -4,9 +4,8 @@
 
 /** A single "beat" produced by the LLM for manga generation */
 export interface StoryBeat {
-  type: 'narration' | 'dialogue' | 'image_prompt' | 'sfx';
-  text?: string;
-  description?: string;
+  type: 'narration' | 'dialogue' | 'panel_prompt' | 'sfx';
+  content: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -14,6 +13,12 @@ export interface StoryBeat {
 export interface TextAIProvider {
   readonly name: string;
   generateStoryBeats(prompt: string, genre: string, panelCount?: number): Promise<StoryBeat[]>;
+  streamStoryBeats?(
+    prompt: string,
+    genre: string,
+    panelCount: number,
+    onBeat: (beat: StoryBeat) => Promise<void> | void,
+  ): Promise<StoryBeat[]>;
   isAvailable(): Promise<boolean>;
 }
 
@@ -34,7 +39,7 @@ export interface GenerationRequest {
 
 /** Streamed panel event sent to the frontend via SSE */
 export interface PanelEvent {
-  type: 'narration' | 'dialogue' | 'image' | 'sfx' | 'done' | 'error';
+  type: 'narration' | 'dialogue' | 'panel_prompt' | 'image' | 'sfx' | 'done' | 'error';
   orderIndex: number;
   content: string;
   metadata?: Record<string, unknown>;

@@ -50,10 +50,18 @@ export class AIRouter {
   }
 
   // ── Text Generation with Fallback ─────────────────────────
-  async generateStoryBeats(prompt: string, genre: string, panelCount?: number): Promise<{ beats: StoryBeat[]; providerUsed: string }> {
+  async generateStoryBeats(
+    prompt: string,
+    genre: string,
+    panelCount = 12,
+    onBeat?: (beat: StoryBeat) => Promise<void> | void,
+  ): Promise<{ beats: StoryBeat[]; providerUsed: string }> {
     const errors: string[] = [];
 
     for (const provider of this.textProviders) {
+      let emittedCount = 0;
+      const usedStreaming = Boolean(provider.streamStoryBeats && onBeat);
+
       try {
         const available = await provider.isAvailable();
         if (!available) {
@@ -62,7 +70,23 @@ export class AIRouter {
           continue;
         }
         console.log(`[AI_ROUTER] ⚡ Attempting text gen with: ${provider.name}`);
-        const beats = await provider.generateStoryBeats(prompt, genre, panelCount);
+
+        const emitBeat = async (beat: StoryBeat) => {
+          emittedCount += 1;
+          if (onBeat) {
+            await onBeat(beat);
+          }
+        };
+
+        const beats = provider.streamStoryBeats && onBeat
+          ? await provider.streamStoryBeats(prompt, genre, panelCount, emitBeat)
+          : await provider.generateStoryBeats(prompt, genre, panelCount);
+
+        if (!provider.streamStoryBeats && onBeat) {
+          for (const beat of beats) {
+            await emitBeat(beat);
+          }
+        }
 
         // VALIDATE: Provider must return at least 1 usable beat
         if (!beats || beats.length === 0) {
@@ -76,6 +100,10 @@ export class AIRouter {
       } catch (err: any) {
         const msg = err?.message || String(err);
         console.error(`[AI_ROUTER] ✗ ${provider.name} failed: ${msg}`);
+        if (usedStreaming && emittedCount > 0) {
+          console.error(`[AI_ROUTER] Streamed provider ${provider.name} failed after partial output; aborting fallback`);
+          throw err;
+        }
         errors.push(`${provider.name}: ${msg.substring(0, 120)}`);
         continue;
       }
@@ -107,27 +135,16 @@ export class AIRouter {
     prompt: string,
     genre: string,
     userId: string,
+    panelCount = 12,
     onPanel?: (event: PanelEvent) => void,
   ): Promise<string> {
-    // ── STEP 1: Generate story beats FIRST (no DB writes yet) ──
-    // If this throws, NO empty project is created.
-    const { beats, providerUsed: textProvider } = await this.generateStoryBeats(prompt, genre);
-
-    // Extra guard: if beats is somehow empty after provider "succeeded"
-    if (!beats || beats.length === 0) {
-      throw new Error('Text pipeline returned empty beats — aborting project creation');
-    }
-
-    console.log(`[PIPELINE] ${beats.length} beats from ${textProvider} — creating project`);
-
-    // ── STEP 2: Create project + page in DB only AFTER beats exist ──
     const project = await prisma.mangaProject.create({
       data: {
         userId,
         title: prompt.substring(0, 100),
         genre: genre as 'SHONEN' | 'SEINEN' | 'MECHA' | 'SHOJO',
         originalPrompt: prompt,
-        aiModelUsed: this.mapProviderToModel(textProvider),
+        aiModelUsed: 'GEMINI_1_5_PRO',
       },
     });
 
@@ -138,73 +155,136 @@ export class AIRouter {
       },
     });
 
-    // ── STEP 3: Process each beat → panels ──
     let orderIndex = 1;
     let coverImageSet = false;
+    let emittedBeatCount = 0;
+    const imageTasks: Promise<void>[] = [];
 
-    for (const beat of beats) {
-      if (beat.type === 'image_prompt' && beat.description) {
-        try {
-          const { imageUrl } = await this.generateImage(beat.description, genre.toLowerCase());
+    const processBeat = async (beat: StoryBeat) => {
+      const currentOrder = orderIndex;
+      orderIndex += 1;
+      emittedBeatCount += 1;
 
-          await prisma.panel.create({
-            data: {
-              pageId: page.id,
-              orderIndex,
-              type: 'IMAGE_PANEL',
-              content: imageUrl,
-              metadata: JSON.parse(JSON.stringify(beat.metadata || {})),
-            },
-          });
-
-          if (!coverImageSet) {
-            await prisma.mangaProject.update({
-              where: { id: project.id },
-              data: { coverImageUrl: imageUrl },
-            });
-            coverImageSet = true;
-          }
-
-          onPanel?.({ type: 'image', orderIndex, content: imageUrl, metadata: beat.metadata as Record<string, unknown> });
-        } catch (err) {
-          console.error(`[PIPELINE] Image generation failed beat #${orderIndex}:`, err);
-          // Save a placeholder so the panel slot isn't lost
-          await prisma.panel.create({
-            data: {
-              pageId: page.id,
-              orderIndex,
-              type: 'IMAGE_PANEL',
-              content: '[IMAGE_GENERATION_FAILED]',
-              metadata: { originalPrompt: beat.description },
-            },
-          });
-          onPanel?.({ type: 'error', orderIndex, content: 'Image generation failed' });
-        }
-      } else {
-        const panelType = beat.type === 'dialogue' ? 'DIALOGUE' : beat.type === 'sfx' ? 'SFX' : 'NARRATION';
-        const content = beat.text || '';
-
-        await prisma.panel.create({
-          data: {
-            pageId: page.id,
-            orderIndex,
-            type: panelType,
-            content,
-            metadata: JSON.parse(JSON.stringify(beat.metadata || {})),
-          },
-        });
-
+      if (beat.type === 'panel_prompt') {
+        const beatMetadata = JSON.parse(JSON.stringify(beat.metadata || {})) as Record<string, unknown>;
         onPanel?.({
-          type: beat.type as PanelEvent['type'],
-          orderIndex,
-          content,
-          metadata: beat.metadata as Record<string, unknown>,
+          type: 'panel_prompt',
+          orderIndex: currentOrder,
+          content: beat.content,
+          metadata: beatMetadata,
         });
+
+        imageTasks.push((async () => {
+          try {
+            const { imageUrl, providerUsed } = await this.generateImage(beat.content, genre.toLowerCase());
+            const imageMetadata = {
+              ...beatMetadata,
+              imagePrompt: beat.content,
+              imageProvider: providerUsed,
+            };
+
+            await prisma.panel.create({
+              data: {
+                pageId: page.id,
+                orderIndex: currentOrder,
+                type: 'IMAGE_PANEL',
+                content: imageUrl,
+                metadata: imageMetadata,
+              },
+            });
+
+            if (!coverImageSet) {
+              coverImageSet = true;
+              await prisma.mangaProject.update({
+                where: { id: project.id },
+                data: { coverImageUrl: imageUrl },
+              });
+            }
+
+            onPanel?.({
+              type: 'image',
+              orderIndex: currentOrder,
+              content: imageUrl,
+              metadata: imageMetadata,
+            });
+          } catch (err) {
+            const message = err instanceof Error ? err.message : 'Image generation failed';
+            console.error(`[PIPELINE] Image generation failed beat #${currentOrder}:`, err);
+
+            await prisma.panel.create({
+              data: {
+                pageId: page.id,
+                orderIndex: currentOrder,
+                type: 'IMAGE_PANEL',
+                content: '[IMAGE_GENERATION_FAILED]',
+                metadata: {
+                  ...beatMetadata,
+                  imagePrompt: beat.content,
+                  error: message,
+                },
+              },
+            });
+
+            onPanel?.({
+              type: 'error',
+              orderIndex: currentOrder,
+              content: 'Image generation failed',
+              metadata: {
+                imagePrompt: beat.content,
+                targetType: 'panel_prompt',
+                error: message,
+              },
+            });
+          }
+        })());
+
+        return;
       }
-      orderIndex++;
+
+      const panelType = beat.type === 'dialogue' ? 'DIALOGUE' : beat.type === 'sfx' ? 'SFX' : 'NARRATION';
+      const beatMetadata = JSON.parse(JSON.stringify(beat.metadata || {})) as Record<string, unknown>;
+
+      await prisma.panel.create({
+        data: {
+          pageId: page.id,
+          orderIndex: currentOrder,
+          type: panelType,
+          content: beat.content,
+          metadata: beatMetadata,
+        },
+      });
+
+      onPanel?.({
+        type: beat.type,
+        orderIndex: currentOrder,
+        content: beat.content,
+        metadata: beatMetadata,
+      });
+    };
+
+    try {
+      const { beats, providerUsed: textProvider } = await this.generateStoryBeats(prompt, genre, panelCount, processBeat);
+
+      if (!beats || beats.length === 0) {
+        throw new Error('Text pipeline returned empty beats — aborting project creation');
+      }
+
+      await prisma.mangaProject.update({
+        where: { id: project.id },
+        data: {
+          aiModelUsed: this.mapProviderToModel(textProvider),
+        },
+      });
+    } catch (error) {
+      if (emittedBeatCount === 0) {
+        await prisma.mangaProject.delete({ where: { id: project.id } });
+      }
+
+      throw error;
     }
 
-    // ── STEP 4: Done ──
+    await Promise.all(imageTasks);
+
     onPanel?.({ type: 'done', orderIndex: -1, content: project.id });
     return project.id;
   }

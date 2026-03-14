@@ -13,14 +13,19 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export class StorageService {
   private bucketName: string;
   private useLocal: boolean;
+  private projectId?: string;
+  private publicBaseUrl?: string;
 
   constructor() {
     this.bucketName = process.env.GCS_BUCKET_NAME || 'ragna-manga-panels';
-    // Fall back to local storage if no GCS credentials
-    this.useLocal = !process.env.GCS_PROJECT_ID || process.env.NODE_ENV === 'development';
+    this.projectId = process.env.GCS_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || undefined;
+    this.publicBaseUrl = process.env.GCS_PUBLIC_BASE_URL || undefined;
+    this.useLocal = !process.env.GCS_BUCKET_NAME;
 
     if (this.useLocal) {
       console.log('[STORAGE] Using local file storage → /uploads volume');
+    } else {
+      console.log(`[STORAGE] Using Google Cloud Storage bucket → ${this.bucketName}`);
     }
   }
 
@@ -53,20 +58,30 @@ export class StorageService {
   }
 
   private async uploadToGCS(buffer: Buffer, name: string): Promise<string> {
-    // Dynamic import to avoid requiring GCS in dev
     const { Storage } = await import('@google-cloud/storage');
-    const storage = new Storage({ projectId: process.env.GCS_PROJECT_ID });
+    const storage = this.projectId ? new Storage({ projectId: this.projectId }) : new Storage();
     const bucket = storage.bucket(this.bucketName);
     const file = bucket.file(name);
 
-    await file.save(buffer, {
-      contentType: 'image/png',
-      metadata: {
-        cacheControl: 'public, max-age=31536000',
-      },
+    await new Promise<void>((resolve, reject) => {
+      const writeStream = file.createWriteStream({
+        resumable: false,
+        contentType: 'image/png',
+        metadata: {
+          cacheControl: 'public, max-age=31536000',
+        },
+      });
+
+      writeStream.on('finish', () => resolve());
+      writeStream.on('error', (error) => reject(error));
+      writeStream.end(buffer);
     });
 
-    await file.makePublic();
-    return `https://storage.googleapis.com/${this.bucketName}/${name}`;
+    if (!this.publicBaseUrl) {
+      await file.makePublic();
+    }
+
+    const publicBaseUrl = this.publicBaseUrl || `https://storage.googleapis.com/${this.bucketName}`;
+    return `${publicBaseUrl.replace(/\/$/, '')}/${name}`;
   }
 }

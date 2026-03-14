@@ -1,13 +1,193 @@
-import React, { useState, useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import VideoBackground from '../components/VideoBackground';
 import PromptInterface from '../components/PromptInterface';
 import { startGeneration } from '../services/api';
 import './Generator.css';
 
+function upsertPanel(panels, nextPanel) {
+    const existingIndex = panels.findIndex((panel) => panel.orderIndex === nextPanel.orderIndex);
+
+    if (existingIndex === -1) {
+        return [...panels, nextPanel].sort((left, right) => left.orderIndex - right.orderIndex);
+    }
+
+    const updatedPanels = [...panels];
+    updatedPanels[existingIndex] = {
+        ...updatedPanels[existingIndex],
+        ...nextPanel,
+        metadata: {
+            ...(updatedPanels[existingIndex].metadata || {}),
+            ...(nextPanel.metadata || {}),
+        },
+    };
+
+    return updatedPanels;
+}
+
+function mergeStreamEvent(panels, event) {
+    if (event.type === 'done' || event.orderIndex < 0) {
+        return panels;
+    }
+
+    const existingPanel = panels.find((panel) => panel.orderIndex === event.orderIndex);
+
+    if (event.type === 'panel_prompt') {
+        return upsertPanel(panels, {
+            orderIndex: event.orderIndex,
+            type: 'image',
+            status: 'loading',
+            content: '',
+            prompt: event.content,
+            metadata: event.metadata || {},
+        });
+    }
+
+    if (event.type === 'image') {
+        return upsertPanel(panels, {
+            orderIndex: event.orderIndex,
+            type: 'image',
+            status: 'ready',
+            content: event.content,
+            prompt: existingPanel?.prompt || event.metadata?.imagePrompt || '',
+            metadata: event.metadata || {},
+        });
+    }
+
+    if (event.type === 'error') {
+        if (event.orderIndex < 1) {
+            return panels;
+        }
+
+        return upsertPanel(panels, {
+            orderIndex: event.orderIndex,
+            type: 'image',
+            status: 'error',
+            content: '',
+            prompt: existingPanel?.prompt || event.metadata?.imagePrompt || '',
+            error: event.metadata?.error || event.content,
+            metadata: event.metadata || {},
+        });
+    }
+
+    return upsertPanel(panels, {
+        orderIndex: event.orderIndex,
+        type: event.type,
+        status: 'ready',
+        content: event.content,
+        metadata: event.metadata || {},
+    });
+}
+
+function buildProgressMessage(event) {
+    switch (event.type) {
+        case 'panel_prompt':
+            return `Director queued panel ${event.orderIndex}. Artist is rendering the shot...`;
+        case 'image':
+            return `Panel ${event.orderIndex} rendered and archived.`;
+        case 'narration':
+            return `Narration beat ${event.orderIndex} locked in.`;
+        case 'dialogue':
+            return `Dialogue beat ${event.orderIndex} locked in.`;
+        case 'sfx':
+            return `SFX beat ${event.orderIndex} dropped into the sequence.`;
+        case 'done':
+            return 'Finalizing archive...';
+        case 'error':
+            return event.orderIndex > 0
+                ? `Panel ${event.orderIndex} failed to render.`
+                : (event.content || 'Generation failed.');
+        default:
+            return 'Directing interleaved sequence...';
+    }
+}
+
+function renderLivePanel(panel) {
+    if (panel.type === 'image') {
+        if (panel.status === 'loading') {
+            return (
+                <>
+                    <div className="live-image-skeleton" />
+                    <p className="text-mono live-prompt-label">PANEL_PROMPT</p>
+                    <p className="text-mono live-prompt-copy">{panel.prompt}</p>
+                </>
+            );
+        }
+
+        if (panel.status === 'error') {
+            return (
+                <div className="live-image-error text-mono">
+                    <span className="error-icon">!</span> {panel.error || 'Image generation failed'}
+                </div>
+            );
+        }
+
+        return <img src={panel.content} alt={`Panel ${panel.orderIndex}`} loading="lazy" />;
+    }
+
+    return (
+        <p className={panel.type === 'sfx' ? 'text-display sfx-text' : 'text-mono'}>
+            {panel.type === 'dialogue' && <span className="dialogue-mark">"</span>}
+            {panel.content}
+            {panel.type === 'dialogue' && <span className="dialogue-mark">"</span>}
+        </p>
+    );
+}
+
+function renderGalleryPanel(panel, index) {
+    return (
+        <div
+            key={panel.orderIndex}
+            className={`manga-panel-real panel-type-${panel.type} panel-status-${panel.status || 'ready'} fade-in-up`}
+            style={{ animationDelay: `${index * 0.05}s` }}
+        >
+            {panel.type === 'image' ? (
+                panel.status === 'loading' ? (
+                    <div className="panel-image-loading">
+                        <div className="panel-image-skeleton" />
+                        <div className="panel-image-caption text-mono">PANEL_PROMPT</div>
+                        <p className="panel-image-prompt text-mono">{panel.prompt}</p>
+                    </div>
+                ) : panel.status === 'error' ? (
+                    <div className="panel-image-error text-mono">
+                        <span className="panel-type-label text-mono">IMAGE</span>
+                        <p>{panel.error || 'Image generation failed'}</p>
+                        {panel.prompt && <p className="panel-image-prompt">{panel.prompt}</p>}
+                    </div>
+                ) : (
+                    <img
+                        src={panel.content}
+                        alt={`Panel ${panel.orderIndex}`}
+                        className="panel-image"
+                        loading="lazy"
+                    />
+                )
+            ) : panel.type === 'narration' ? (
+                <div className="panel-narration">
+                    <span className="panel-type-label text-mono">NARRATION</span>
+                    <p className="text-mono">{panel.content}</p>
+                </div>
+            ) : panel.type === 'dialogue' ? (
+                <div className="panel-dialogue">
+                    <span className="panel-type-label text-mono">DIALOGUE</span>
+                    <div className="dialogue-content">
+                        <span className="dialogue-mark">"</span>
+                        <p className="text-mono">{panel.content}</p>
+                        <span className="dialogue-mark">"</span>
+                    </div>
+                </div>
+            ) : panel.type === 'sfx' ? (
+                <div className="panel-sfx">
+                    <p className="text-display">{panel.content}</p>
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
 export default function Generator() {
     const navigate = useNavigate();
-    const [appState, setAppState] = useState('idle'); // idle, generating, results
+    const [appState, setAppState] = useState('idle');
     const [currentPrompt, setCurrentPrompt] = useState('');
     const [currentGenre, setCurrentGenre] = useState('SHONEN');
     const [panels, setPanels] = useState([]);
@@ -22,24 +202,20 @@ export default function Generator() {
         setAppState('generating');
         setPanels([]);
         setError(null);
-        setProgress('Connecting to AI pipeline...');
+        setProjectId(null);
+        setProgress('Connecting to director...');
         panelCountRef.current = 0;
 
         try {
             const resultProjectId = await startGeneration(
                 { prompt: promptText, genre: genre || 'SHONEN', panelCount: 12 },
                 (event) => {
-                    // Handle each streaming panel event
-                    panelCountRef.current += 1;
-                    const count = panelCountRef.current;
-
-                    if (event.type === 'error') {
-                        setProgress(`Panel ${count} failed — retrying...`);
-                        return;
+                    if (event.orderIndex > 0) {
+                        panelCountRef.current = Math.max(panelCountRef.current, event.orderIndex);
                     }
 
-                    setProgress(`Synthesizing panel ${count}...`);
-                    setPanels(prev => [...prev, event]);
+                    setProgress(buildProgressMessage(event));
+                    setPanels((prev) => mergeStreamEvent(prev, event));
                 }
             );
 
@@ -47,8 +223,9 @@ export default function Generator() {
             setAppState('results');
         } catch (err) {
             console.error('[GENERATOR] Pipeline error:', err);
-            setError(err.message || 'Generation failed');
-            // If we got some panels before the error, show results anyway
+            const message = err instanceof Error ? err.message : 'Generation failed';
+            setError(message);
+
             if (panelCountRef.current > 0) {
                 setAppState('results');
             } else {
@@ -63,7 +240,10 @@ export default function Generator() {
         setPanels([]);
         setError(null);
         setProjectId(null);
+        setProgress('');
     };
+
+    const activeImageJobs = panels.filter((panel) => panel.type === 'image' && panel.status === 'loading').length;
 
     return (
         <>
@@ -100,26 +280,19 @@ export default function Generator() {
                     {appState === 'generating' && (
                         <div className="loading-state fade-in-up">
                             <div className="loading-spinner"></div>
-                            <h2 className="text-display animate-glitch">SYNTHESIZING PANELS...</h2>
+                            <h2 className="text-display animate-glitch">DIRECTING SEQUENCE...</h2>
                             <p className="text-mono">{progress}</p>
                             <p className="text-mono prompt-echo">"{currentPrompt}"</p>
 
-                            {/* Live panel feed — panels appear as they stream in */}
                             {panels.length > 0 && (
                                 <div className="live-feed">
-                                    <div className="live-feed-label text-mono">LIVE FEED — {panels.length} PANELS RECEIVED</div>
+                                    <div className="live-feed-label text-mono">
+                                        LIVE FEED — {panels.length} STORY BEATS / {activeImageJobs} PANELS RENDERING
+                                    </div>
                                     <div className="live-panels">
-                                        {panels.map((panel, i) => (
-                                            <div key={i} className={`live-panel live-panel-${panel.type} fade-in-up`}>
-                                                {panel.type === 'image' ? (
-                                                    <img src={panel.content} alt={`Panel ${panel.orderIndex}`} loading="lazy" />
-                                                ) : (
-                                                    <p className={panel.type === 'sfx' ? 'text-display sfx-text' : 'text-mono'}>
-                                                        {panel.type === 'dialogue' && <span className="dialogue-mark">"</span>}
-                                                        {panel.content}
-                                                        {panel.type === 'dialogue' && <span className="dialogue-mark">"</span>}
-                                                    </p>
-                                                )}
+                                        {panels.map((panel) => (
+                                            <div key={panel.orderIndex} className={`live-panel live-panel-${panel.type} live-panel-${panel.status || 'ready'} fade-in-up`}>
+                                                {renderLivePanel(panel)}
                                             </div>
                                         ))}
                                     </div>
@@ -156,45 +329,12 @@ export default function Generator() {
                                         No panels were generated. Try a different prompt.
                                     </div>
                                 ) : (
-                                    panels.map((panel, i) => (
-                                        <div
-                                            key={i}
-                                            className={`manga-panel-real panel-type-${panel.type} fade-in-up`}
-                                            style={{ animationDelay: `${i * 0.05}s` }}
-                                        >
-                                            {panel.type === 'image' ? (
-                                                <img
-                                                    src={panel.content}
-                                                    alt={`Panel ${panel.orderIndex}`}
-                                                    className="panel-image"
-                                                    loading="lazy"
-                                                />
-                                            ) : panel.type === 'narration' ? (
-                                                <div className="panel-narration">
-                                                    <span className="panel-type-label text-mono">NARRATION</span>
-                                                    <p className="text-mono">{panel.content}</p>
-                                                </div>
-                                            ) : panel.type === 'dialogue' ? (
-                                                <div className="panel-dialogue">
-                                                    <span className="panel-type-label text-mono">DIALOGUE</span>
-                                                    <div className="dialogue-content">
-                                                        <span className="dialogue-mark">"</span>
-                                                        <p className="text-mono">{panel.content}</p>
-                                                        <span className="dialogue-mark">"</span>
-                                                    </div>
-                                                </div>
-                                            ) : panel.type === 'sfx' ? (
-                                                <div className="panel-sfx">
-                                                    <p className="text-display">{panel.content}</p>
-                                                </div>
-                                            ) : null}
-                                        </div>
-                                    ))
+                                    panels.map((panel, index) => renderGalleryPanel(panel, index))
                                 )}
                             </div>
 
                             <div className="results-meta text-mono">
-                                <span>{panels.length} PANELS</span>
+                                <span>{panels.length} STORY BEATS</span>
                                 <span>GENRE: {currentGenre}</span>
                                 {projectId && <span>PROJECT: {projectId.substring(0, 8)}...</span>}
                             </div>
