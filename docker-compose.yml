@@ -43,7 +43,6 @@ services:
     env_file:
       - ./server/.env
     environment:
-      DATABASE_URL: "postgresql://ragna_admin:${DB_PASSWORD:-ragna_secret_2026}@db:5432/ragna_core?schema=public"
       PORT: "8080"
       NODE_ENV: "production"
       CORS_ORIGIN: "http://localhost:3000"

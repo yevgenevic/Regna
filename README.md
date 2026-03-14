@@ -2,6 +2,16 @@
 
 RAGNA is an agentic manga generator built for the Gemini API Developer Competition, Creative Storyteller track. The app does not wait for a full story and then render images afterward. Gemini 1.5 Pro acts as a director, streams an interleaved mixed-media sequence, and the UI fills in text immediately while panel images render in the background slot by slot.
 
+## Version 1.0
+
+Version 1.0 marks the first cloud-ready RAGNA release:
+
+- Interleaved Gemini director streaming is live.
+- Panel placeholders render while images generate asynchronously.
+- Image persistence is GCS-ready.
+- The app ships as a single frontend + API container for Cloud Run.
+- Prisma is now Neon-ready with `DIRECT_URL` support for schema operations.
+
 ## Why This Build Matters
 
 - Gemini 1.5 Pro streams a JSON array of interleaved objects in reading order.
@@ -74,7 +84,8 @@ Minimum local env values:
 ```env
 GEMINI_API_KEY=your-google-ai-studio-key
 COMET_API_KEY=your-comet-key
-DATABASE_URL=postgresql://ragna_admin:ragna_secret_2026@db:5432/ragna_core
+DATABASE_URL=postgresql://user:password@ep-xxxx-pooler.region.provider.neon.tech/neondb?sslmode=require&channel_binding=require
+DIRECT_URL=postgresql://user:password@ep-xxxx.region.provider.neon.tech/neondb?sslmode=require&channel_binding=require
 ```
 
 If you want Cloud Storage locally as well, set:
@@ -130,6 +141,7 @@ Important ones:
 | Variable | Required | Purpose |
 |----------|----------|---------|
 | `DATABASE_URL` | yes | PostgreSQL connection string |
+| `DIRECT_URL` | recommended for Neon, required for Prisma schema sync | Direct non-pooled PostgreSQL connection for `db push`, Studio, and migrations |
 | `GEMINI_API_KEY` | yes for primary path | Gemini 1.5 Pro director stream |
 | `COMET_API_KEY` | yes for primary image path | Image generation |
 | `OPENROUTER_API_KEY` | optional | Text fallback |
@@ -196,6 +208,35 @@ gcloud run deploy ragna \
 ```
 
 You still need to provide a valid `DATABASE_URL`, either through `--set-env-vars`, `--set-secrets`, or your service configuration.
+
+## Neon Setup
+
+For Neon, use the pooled connection string as `DATABASE_URL` and the direct, non-pooled connection string as `DIRECT_URL`.
+
+Prisma is configured like this in [server/prisma/schema.prisma](server/prisma/schema.prisma):
+
+```prisma
+datasource db {
+	provider  = "postgresql"
+	url       = env("DATABASE_URL")
+	directUrl = env("DIRECT_URL")
+}
+```
+
+Hackathon-friendly sync flow:
+
+```bash
+cd server
+npx prisma generate
+npx prisma db push
+npx prisma studio
+```
+
+Use `db push` here because it makes the live Neon schema match the Prisma schema immediately without forcing a migration-history workflow.
+
+## Render Tip
+
+If you deploy on Render, add both `DATABASE_URL` and `DIRECT_URL` to the service environment variables. That lets a pre-deploy command like `npx prisma migrate deploy` or a one-time `npx prisma db push` connect reliably without Neon pooler issues.
 
 ## API Surface
 

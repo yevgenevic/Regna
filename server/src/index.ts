@@ -43,7 +43,7 @@ if (existsSync(publicDir)) {
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'SYSTEM_ONLINE',
-    version: '3.0.0',
+    version: '1.0.0',
     timestamp: new Date().toISOString(),
     infrastructure: process.env.K_SERVICE ? 'cloud-run' : 'docker',
   });
