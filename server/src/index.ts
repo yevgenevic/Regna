@@ -6,6 +6,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import { existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { projectRoutes } from './routes/projects.js';
@@ -15,19 +16,28 @@ import { panelRoutes } from './routes/panels.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = parseInt(process.env.PORT || '4000', 10);
+const configuredOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
+  : true;
+const uploadsDir = join(__dirname, '../uploads');
+const publicDir = join(__dirname, '../public');
 
 // ── Middleware ────────────────────────────────────────────────
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
-app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:3000' }));
+app.use(cors({ origin: configuredOrigins }));
 app.use(express.json({ limit: '10mb' }));
 
-// ── SRS §1.2: Serve /uploads directory statically ────────────
-// Maps the local volume (./uploads → /app/uploads in Docker)
-const uploadsDir = join(__dirname, '../uploads');
 app.use('/uploads', express.static(uploadsDir, {
   maxAge: '7d',
   immutable: true,
 }));
+
+if (existsSync(publicDir)) {
+  app.use(express.static(publicDir, {
+    index: false,
+    maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0,
+  }));
+}
 
 // ── Health Check ─────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {
@@ -35,7 +45,7 @@ app.get('/api/health', (_req, res) => {
     status: 'SYSTEM_ONLINE',
     version: '3.0.0',
     timestamp: new Date().toISOString(),
-    infrastructure: 'docker',
+    infrastructure: process.env.K_SERVICE ? 'cloud-run' : 'docker',
   });
 });
 
@@ -43,6 +53,17 @@ app.get('/api/health', (_req, res) => {
 app.use('/api/projects', projectRoutes);
 app.use('/api/generate', generateRoutes);
 app.use('/api/panels', panelRoutes);
+
+if (existsSync(publicDir)) {
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
+      next();
+      return;
+    }
+
+    res.sendFile(join(publicDir, 'index.html'));
+  });
+}
 
 // ── Global Error Handler ─────────────────────────────────────
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
@@ -55,7 +76,12 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`   Mode            : ${process.env.NODE_ENV || 'development'}`);
   console.log(`   Text AI Pipeline : ${process.env.TEXT_AI_PROVIDER || 'gemini'}`);
   console.log(`   Image AI Pipeline: ${process.env.IMAGE_AI_PROVIDER || 'comet'}`);
-  console.log(`   Uploads served  : ${uploadsDir}\n`);
+  console.log(`   Uploads served  : ${uploadsDir}`);
+  if (existsSync(publicDir)) {
+    console.log(`   Static app      : ${publicDir}\n`);
+  } else {
+    console.log('   Static app      : not bundled\n');
+  }
 });
 
 export default app;

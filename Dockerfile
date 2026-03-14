@@ -1,29 +1,40 @@
 # ──────────────────────────────────────────────────────────────
-# RAGNA Frontend — Multi-stage Docker Build
-# Uses Vite build + lightweight serve for production
+# RAGNA — Full-stack Cloud Run image
+# Builds the React frontend, bundles it into the Express server,
+# and starts a single container that serves both UI + API.
 # ──────────────────────────────────────────────────────────────
-FROM node:20-alpine AS base
+FROM node:20-alpine AS web-deps
 WORKDIR /app
-
-# ── Install dependencies ────────────────────────────────────
-FROM base AS deps
 COPY package.json package-lock.json* ./
 RUN npm ci
 
-# ── Build Vite app ──────────────────────────────────────────
-FROM deps AS build
+FROM web-deps AS web-build
 COPY . .
-# Bake the API URL into the build
-ARG VITE_API_URL=http://localhost:4000/api
+ARG VITE_API_URL=/api
 ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build
 
-# ── Production image with serve ─────────────────────────────
+FROM node:20-alpine AS server-deps
+WORKDIR /app/server
+COPY server/package.json server/package-lock.json* ./
+COPY server/prisma ./prisma/
+RUN npm ci --ignore-scripts && npx prisma generate
+
+FROM server-deps AS server-build
+COPY server/tsconfig.json ./tsconfig.json
+COPY server/src ./src/
+RUN npm run build
+
 FROM node:20-alpine AS runner
-WORKDIR /app
-RUN npm install -g serve
-COPY --from=build /app/dist ./dist
+WORKDIR /app/server
+ENV NODE_ENV=production
+COPY --from=server-deps /app/server/node_modules ./node_modules
+COPY --from=server-deps /app/server/package.json ./package.json
+COPY --from=server-deps /app/server/prisma ./prisma
+COPY --from=server-build /app/server/dist ./dist
+COPY --from=web-build /app/dist ./public
+RUN mkdir -p /app/server/uploads/panels
 
-EXPOSE 3000
+EXPOSE 8080
 
-CMD ["serve", "-s", "dist", "-l", "3000"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]

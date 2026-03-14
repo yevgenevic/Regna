@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────────────────────
 // Frontend API Service — Talks to RAGNA backend
 // ──────────────────────────────────────────────────────────────
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:4000/api' : '/api');
 
 // ── Projects (Archives) ─────────────────────────────────────
 export async function fetchProjects({ genre, sort } = {}) {
@@ -29,6 +29,8 @@ export async function deleteProject(id) {
 // ── Generation (SSE Streaming) ──────────────────────────────
 export function startGeneration({ prompt, genre, panelCount }, onPanel) {
   return new Promise((resolve, reject) => {
+    let completed = false;
+
     fetch(`${API_BASE}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -41,13 +43,23 @@ export function startGeneration({ prompt, genre, panelCount }, onPanel) {
           return;
         }
 
+        if (!response.body) {
+          reject(new Error('Streaming response body was not available'));
+          return;
+        }
+
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
 
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            if (!completed) {
+              reject(new Error('Generation stream closed before completion'));
+            }
+            break;
+          }
 
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split('\n\n');
@@ -58,6 +70,7 @@ export function startGeneration({ prompt, genre, panelCount }, onPanel) {
               try {
                 const event = JSON.parse(line.slice(6));
                 if (event.type === 'complete') {
+                  completed = true;
                   resolve(event.projectId);
                 } else {
                   onPanel(event);

@@ -6,23 +6,11 @@
 // ──────────────────────────────────────────────────────────────
 import type { TextAIProvider, StoryBeat } from './types.js';
 import { robustJsonParse } from './jsonRepair.js';
-
-const MANGA_SYSTEM_PROMPT = `You are RAGNA, an expert manga storyboard AI.
-You generate structured story beats for manga panels in strict JSON format.
-Every response MUST be a valid JSON array of beat objects.
-
-Each beat object has:
-- "type": one of "narration", "dialogue", "image_prompt", "sfx"
-- "text": the text content (for narration, dialogue, sfx)
-- "description": detailed visual description (ONLY for image_prompt type)
-- "metadata": optional object with keys like "character_focus", "camera_angle", "mood"
-
-For image_prompt descriptions, always include:
-- Black and white manga aesthetic, screentone/halftone shading
-- Dynamic composition and camera angles
-- High contrast visual language
-
-Interleave text and image beats naturally. Return ONLY the JSON array, no markdown.`;
+import {
+  buildStoryDirectorPrompt,
+  normalizeStoryBeats,
+  STORY_DIRECTOR_SYSTEM_INSTRUCTION,
+} from './storyDirector.js';
 
 // ── Text Model Pool (Comet-hosted) ───────────────────────────
 // These models are accessed via Comet's OpenAI-compatible /chat/completions
@@ -73,7 +61,7 @@ export class CometTextProvider implements TextAIProvider {
   }
 
   private async _callModel(model: string, prompt: string, genre: string, panelCount: number): Promise<StoryBeat[]> {
-    const userPrompt = `Genre: ${genre}\nPanel count target: ${panelCount}\nUser prompt: "${prompt}"\n\nGenerate a manga storyboard as a JSON array of story beats. Return ONLY the JSON array, no markdown fences, no explanation.`;
+    const userPrompt = buildStoryDirectorPrompt(prompt, genre, panelCount);
 
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
@@ -84,7 +72,7 @@ export class CometTextProvider implements TextAIProvider {
       body: JSON.stringify({
         model,
         messages: [
-          { role: 'system', content: MANGA_SYSTEM_PROMPT },
+          { role: 'system', content: STORY_DIRECTOR_SYSTEM_INSTRUCTION },
           { role: 'user', content: userPrompt },
         ],
         temperature: 0.8,
@@ -102,15 +90,12 @@ export class CometTextProvider implements TextAIProvider {
     if (!content) throw new Error('Empty response from Comet');
 
     const parsed = robustJsonParse<StoryBeat[]>(content);
-    if (!Array.isArray(parsed) || parsed.length === 0) {
+    const beats = normalizeStoryBeats(parsed);
+    if (beats.length === 0) {
       throw new Error('Parsed result is not a valid beats array');
     }
 
-    // Validate beat structure
-    return parsed.filter(beat =>
-      beat && typeof beat === 'object' &&
-      ['narration', 'dialogue', 'image_prompt', 'sfx'].includes(beat.type)
-    );
+    return beats;
   }
 
   async isAvailable(): Promise<boolean> {

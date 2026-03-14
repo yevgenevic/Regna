@@ -177,6 +177,10 @@
     background: rgba(255, 255, 255, 0.03);
 }
 
+.live-panel-loading {
+    border-left-color: var(--color-accent-red);
+}
+
 .live-panel-image {
     border-left-color: var(--color-accent-red);
 }
@@ -205,6 +209,36 @@
 .live-panel .dialogue-mark {
     color: var(--color-accent-red);
     font-weight: 700;
+}
+
+.live-image-skeleton {
+    width: 200px;
+    height: 150px;
+    border: 2px solid rgba(255, 255, 255, 0.15);
+    background:
+        linear-gradient(120deg, rgba(255, 255, 255, 0.04) 25%, rgba(255, 255, 255, 0.14) 50%, rgba(255, 255, 255, 0.04) 75%),
+        repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.02) 3px, transparent 3px, transparent 6px);
+    background-size: 200% 100%, auto;
+    animation: shimmer 1.2s linear infinite;
+}
+
+.live-prompt-label {
+    margin-top: 0.75rem;
+    margin-bottom: 0.25rem;
+    color: var(--color-accent-red);
+    font-size: 0.65rem;
+    letter-spacing: 0.18em;
+}
+
+.live-prompt-copy {
+    font-size: 0.75rem;
+}
+
+.live-image-error {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--color-accent-red);
 }
 
 /* Results State */
@@ -296,9 +330,22 @@
     }
 }
 
+@keyframes shimmer {
+    from {
+        background-position: 200% 0, 0 0;
+    }
+    to {
+        background-position: -200% 0, 0 0;
+    }
+}
+
 .panel-type-image {
     background: var(--color-ink);
     border: 2px solid var(--color-ink);
+}
+
+.panel-status-loading {
+    border: 2px dashed rgba(0, 0, 0, 0.35);
 }
 
 .panel-image {
@@ -312,6 +359,46 @@
 
 .panel-type-image:hover .panel-image {
     filter: grayscale(90%) contrast(130%);
+}
+
+.panel-image-loading,
+.panel-image-error {
+    padding: 20px 24px;
+    background: var(--color-ink);
+    color: var(--color-paper);
+}
+
+.panel-image-skeleton {
+    width: 100%;
+    min-height: 420px;
+    background:
+        linear-gradient(120deg, rgba(255, 255, 255, 0.18) 25%, rgba(255, 255, 255, 0.4) 50%, rgba(255, 255, 255, 0.18) 75%),
+        repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.16) 3px, rgba(255, 255, 255, 0.04) 3px, rgba(255, 255, 255, 0.04) 6px);
+    background-size: 200% 100%, auto;
+    animation: shimmer 1.2s linear infinite;
+}
+
+.panel-image-caption {
+    margin-top: 1rem;
+    font-size: 0.65rem;
+    letter-spacing: 0.18em;
+    color: var(--color-accent-red);
+}
+
+.panel-image-prompt {
+    margin: 0.4rem 0 0;
+    line-height: 1.6;
+    opacity: 0.78;
+}
+
+.panel-image-error .panel-type-label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: var(--color-accent-red);
+}
+
+.panel-image-error p {
+    margin: 0;
 }
 
 .panel-narration {
